@@ -384,33 +384,20 @@ def transform_payments(payments_df, rides_df):
 
 #the main transform function that return cleaned dataframes
 def transform(drivers_df, rides_df, payments_df):
-    """
-    Transform all 3 DataFrames, then clean up FK references.
-    
-    Order:
-    1. Clean drivers
-    2. Clean rides  
-    3. FK cleanup: rides.driver_id must exist in clean_drivers
-    4. Clean payments (needs clean_rides for currency derivation)
-    5. FK cleanup: payments.ride_id must exist in clean_rides
-    """
-    # Step 1: Clean each table
+    #Clean each table
     clean_drivers = transform_drivers(drivers_df)
     clean_rides = transform_rides(rides_df)
 
-    # Step 2: FK cleanup — rides.driver_id must exist in drivers
+    # FK cleanup (rides.driver_id must exist in drivers)
     valid_driver_ids = set(clean_drivers["driver_id"].dropna().unique())
     orphan_mask = clean_rides["driver_id"].apply(
         lambda x: pd.notna(x) and x not in valid_driver_ids
     )
     orphan_count = orphan_mask.sum()
     clean_rides.loc[orphan_mask, "driver_id"] = None
-    print(f"    FK cleanup: {orphan_count} ride driver_ids not in drivers → NULL")
-
-    # Step 3: Clean payments (uses clean_rides for currency derivation)
+    # Clean payments (uses clean_rides for currency derivation)
     clean_payments = transform_payments(payments_df, clean_rides)
-
-    # Step 4: FK cleanup — payments.ride_id must exist in rides
+    # FK cleanup(payments.ride_id must exist in rides)
     valid_ride_ids = set(clean_rides["ride_id"].dropna().unique())
     orphan_mask = clean_payments["ride_id"].apply(
         lambda x: pd.notna(x) and x not in valid_ride_ids
@@ -418,11 +405,8 @@ def transform(drivers_df, rides_df, payments_df):
     orphan_count = orphan_mask.sum()
     clean_payments.loc[orphan_mask, "ride_id"] = None
     print(f"    FK cleanup: {orphan_count} payment ride_ids not in rides → NULL")
-
-    # Step 5: Return the CLEANED DataFrames
+    # Return the CLEANED DataFrames
     return clean_drivers, clean_rides, clean_payments
-
-
 
 
 #build city ref 
