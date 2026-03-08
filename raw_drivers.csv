@@ -1,0 +1,41 @@
+driver_id,driver_name,city,vehicle_type,rating,joined_date,phone,status
+DRV-1000,Amina A.,Abidjan,motorcycle,-1,2024-05-20,+234890779946,active
+DRV-1001,Adama S.,Cairo,motorcycle,4.1,2025-01-01,+234582334538,suspended
+DRV-1002,Aisha D.,Lagos,van,3.2,2024-07-13,+212748245888,active
+DRV-1003,Kwame B.,Abidjan,van,4.2,2024-12-26,+225344703907,active
+DRV-1004,Kofi M.,Lagos,van,3.7,2024-12-09,+20781802744,active
+DRV-1005,Fatima A.,cairo ,van,4.7,2025-02-01,+254964411347,active
+DRV-1006,Amina O.,Abidjan,bicycle,3.3,2024-03-12,+225727694430,inactive
+DRV-1007,Halima M.,Nairobi,motorcycle,N/A,2024-03-22,+221509760584,suspended
+,Aisha O.,Cairo,van,4.5,2024-06-23,+221269820594,inactive
+DRV-1009,Khadija A.,Nairobi,van,4.7,16/09/2024,,active
+DRV-1010,Rachid M.,Casablanca,car,3.1,2025-03-25,+254885879795,inactive
+DRV-1011,Halima A.,Lagos,van,4.1,2024-11-06,+20910959828,active
+,Rachid A.,Lagos,car,3.1,2024-01-11,+20336456621,active
+DRV-1013,Adama K.,Lagos,van,4.3,2024-04-19,+225713152854,suspended
+DRV-1014,Fatima M.,Dakar,bicycle,3.9,2025-01-08,+254532311310,active
+DRV-1015,Tunde M.,Dakar,car,4.7,2024-02-08,+254800235246,suspended
+DRV-1016,Moussa B.,Lagos,bicycle,4.8,2024-03-25,+221384759615,inactive
+,Rachid B.,Lagos,van,3.4,2024-01-30,+225436730606,active
+DRV-1018,Amina S., Nairobi ,motorcycle,4.2,2024-12-11,+254711684318,active
+,Omar O.,Lagos,van,3.5,2024-07-21,+221439492674,active
+DRV-1020,Amina D.,Lagos,van,4.8,2025-03-26,unknown,inactive
+DRV-1021,Kofi M.,Casablanca,motorcycle,4.9,2024-03-09,+254897163846,suspended
+,Fatima M.,Cairo,bicycle,3.5,2025-04-09,+225554811020,active
+DRV-1023,Kwame K.,Abidjan,bicycle,4.1,2024-02-27,+20138684919,active
+DRV-1024,Aisha D.,Nairobi,van,3.4,2024-05-07,+20536344399,suspended
+DRV-1025,Hassan S.,Dakar,motorcycle,3.4,2025-04-18,+225889262019,active
+DRV-1026,Amina A.,Dakar,Car,3.6,2025-02-11,+254808705238,active
+DRV-1027,Kofi K.,Cairo,van,4.9,2024-02-29,+20385042337,active
+DRV-1028,Halima B.,Dakar,car,3.5,2024-12-28,+20965984448,suspended
+DRV-1029,Zainab O.,Casablanca,van,4.3,2024-03-04,+225538508549,active
+DRV-1030,Amine O.,Lagos,van,3.8,2025-03-02,+212325681936,inactive
+DRV-1031,Ibrahim D.,Abidjan,car,4.3,25/05/2024,+254978775497,active
+DRV-1032,Rachid A.,Nairobi,bicycle,3.8,18/11/2024,+225847704681,inactive
+DRV-1033,Ibrahim T.,Nairobi,bicycle,3.4,2025-02-15,+254698509918,active
+DRV-1034,Ibrahim S.,Casablanca,bicycle,4.2,2025-01-03,+20578796089,active
+DRV-1035,Tunde M.,Cairo,bicycle,4.3,2024-05-20,+225406798268,active
+DRV-1036,Hassan T.,Abidjan,car,N/A,2024-07-27,+221166857303,active
+DRV-1037,Halima A.,casablanca,van,3.6,2024-07-18,+221335602191,active
+DRV-1038,Rachid B.,Lagos,VAN,4.8,2024-10-30,+254790147183,inactive
+DRV-1039,Halima O.,casablanca,van,4.5,2025-03-01,N/A,active
