@@ -384,28 +384,23 @@ def transform_payments(payments_df, rides_df):
 
 #the main transform function that return cleaned dataframes
 def transform(drivers_df, rides_df, payments_df):
-    #Clean each table
     clean_drivers = transform_drivers(drivers_df)
     clean_rides = transform_rides(rides_df)
-
-    # FK cleanup (rides.driver_id must exist in drivers)
+    #rides.driver_id must exist in drivers
     valid_driver_ids = set(clean_drivers["driver_id"].dropna().unique())
-    orphan_mask = clean_rides["driver_id"].apply(
-        lambda x: pd.notna(x) and x not in valid_driver_ids
-    )
+    orphan_mask = clean_rides["driver_id"].notna() & ~clean_rides["driver_id"].isin(valid_driver_ids)
     orphan_count = orphan_mask.sum()
     clean_rides.loc[orphan_mask, "driver_id"] = None
-    # Clean payments (uses clean_rides for currency derivation)
+
     clean_payments = transform_payments(payments_df, clean_rides)
-    # FK cleanup(payments.ride_id must exist in rides)
+
+    # payments.ride_id must exist in rides
     valid_ride_ids = set(clean_rides["ride_id"].dropna().unique())
-    orphan_mask = clean_payments["ride_id"].apply(
-        lambda x: pd.notna(x) and x not in valid_ride_ids
-    )
+    orphan_mask = clean_payments["ride_id"].notna() & ~clean_payments["ride_id"].isin(valid_ride_ids)
     orphan_count = orphan_mask.sum()
     clean_payments.loc[orphan_mask, "ride_id"] = None
-    print(f"    FK cleanup: {orphan_count} payment ride_ids not in rides → NULL")
-    # Return the CLEANED DataFrames
+    print(f"FK cleanup: {orphan_count} payment ride_ids not in rides → NULL")
+
     return clean_drivers, clean_rides, clean_payments
 
 
