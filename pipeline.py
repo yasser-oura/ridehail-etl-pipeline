@@ -1,10 +1,12 @@
 import os
 import pandas as pd
 import psycopg2
+from psycopg2.extras import execute_values
 from dotenv import load_dotenv
 from datetime import datetime
 import numpy as np
-# ─── Config ───────────────────────────────────────────────────────────────────
+
+#CONFIG
 load_dotenv()
 DB_HOST = os.getenv("DB_HOST")
 DB_PORT = os.getenv("DB_PORT", 5432)
@@ -25,7 +27,7 @@ CITY_MAPPING = {
 }
 
 
-# ─── Extract ──────────────────────────────────────────────────────────────────
+#EXTRACT
 def extract():
     drivers_df = pd.read_csv("raw_drivers.csv")
     rides_df = pd.read_csv("raw_rides.csv")
@@ -37,79 +39,35 @@ def extract():
 
     return drivers_df, rides_df, payments_df
 
-# ─── Transform ───────────────────────────────────────────────────────────────
-#helper function since same cleaning patern is applied to all 3 dataframes
+#TRANSFORM
+# #helper function since same cleaning patern is applied to all 3 dataframes
 def normalize_city(city):
     if pd.isna(city):
         return None
     city = str(city).strip().title()
     if city in VALID_CITIES:
         return city
-    return None
-
-
-def flexible_date(date_value):
-    if pd.isna(date_value):
-        return None
-    date_str = str(date_value).strip()
-    formats = [
-        "%Y-%m-%d %H:%M:%S",
-        "%Y-%m-%d %H:%M",
-        "%Y-%m-%d",
-        "%d-%m-%Y %H:%M:%S",
-        "%d-%m-%Y %H:%M",
-        "%d-%m-%Y",
-        "%d/%m/%Y %H:%M:%S",
-        "%d/%m/%Y %H:%M",
-        "%d/%m/%Y",
-    ]
-    for fmt in formats:
-        try:
-            return datetime.strptime(date_str, fmt)
-        except ValueError:
-            continue
-    try:
-        return pd.to_datetime(date_str)
-    except Exception:
+    else:
         return None
 
-def clean_numeric(value,must_be_positive=True,remove_commas=True):
-    if pd.isna(value):
-        return None
-    s=str(value).strip()
-    if remove_commas:
-        s=s.replace(",","")
-    try:
-        num=float(s)
-    except ValueError:
-        return None
-    if must_be_positive and num<=0:
-        num=abs(num)
-    if num==0:
-        return None 
-    return num
+def generate_id(series, prefix):
+    cleaned_series = series.copy()
+    cleaned_series = cleaned_series.replace(r'^\s*$', np.nan, regex=True)
 
-def generate_id(series,prefix):
-# find the highest existing number for the prefix (to avoid duplicates)
-    existing_nums = []
-    for val in series.dropna():
-        val_str=str(val).strip().upper()
-        if val_str.startswith(prefix.upper()+"-"):
-            try:
-                num = int(val_str.split("-")[1])
-                existing_nums.append(num)
-            except (ValueError, IndexError):
-                pass
-    
-    next_num=max(existing_nums) + 1 if existing_nums else 1
-    
-#fill the missing value 
-    new_series = series.copy()
-    for i in range(len(new_series)):
-        if pd.isna(new_series.iloc[i]) or str(new_series.iloc[i]).strip() == "":
-            new_series.iloc[i] = f"{prefix}-{next_num:04d}"
-            next_num += 1
-    return new_series  
+    existing_nums = pd.to_numeric(
+        cleaned_series.astype(str).str.replace(f"{prefix}-", "", regex=False), 
+        errors='coerce'
+    )
+    last_id = existing_nums.max()
+    start_num = int(last_id) + 1 if pd.notna(last_id) else 1
+    missing_count = cleaned_series.isna().sum()
+
+    if missing_count > 0:
+        new_ids = [f"{prefix}-{str(n).zfill(4)}" for n in range(start_num, start_num + missing_count)]
+        missing_indexes = cleaned_series[cleaned_series.isna()].index
+        fill_series = pd.Series(new_ids, index=missing_indexes)
+        cleaned_series = cleaned_series.fillna(fill_series)
+    return cleaned_series
 
 #transform drivers 
 def transform_drivers(drivers_df):
@@ -123,20 +81,14 @@ def transform_drivers(drivers_df):
 #normalize city names
     df["city_name"]=df["city_name"].apply(normalize_city)
 #normalize vehicle type
-    vehicle_map = {
+    df["vehicle_type"] = df["vehicle_type"].astype(str).str.strip().str.lower()
+    vehicle_fixes = {
         "moto": "motorcycle",
-        "motor cycle": "motorcycle",
-        "motorcycle": "motorcycle",
-        "car": "car",
-        "van": "van",
-        "bicycle": "bicycle",}
-    df["vehicle_type"] = (
-        df["vehicle_type"]
-        .astype(str)        
-        .str.strip()        
-        .str.lower()        
-        .map(vehicle_map) 
-    )
+        "motor cycle": "motorcycle"
+    }
+    df["vehicle_type"] = df["vehicle_type"].replace(vehicle_fixes)
+    valid_vehicles = ["motorcycle", "car", "van", "bicycle"]
+    df.loc[~df["vehicle_type"].isin(valid_vehicles), "vehicle_type"] = np.nan
 #clean rating
     df["rating"] = pd.to_numeric(df["rating"], errors="coerce")
     out_of_range=((df["rating"] < 1.0) | (df["rating"] > 5.0)).sum()
@@ -146,8 +98,8 @@ def transform_drivers(drivers_df):
     df["phone"] = df["phone"].astype(str).str.strip()
     df.loc[df["phone"].str.lower().isin(phone_placeholders), "phone"] = None
 #date formatting
-    df["joined_date"]=df["joined_date"].apply(flexible_date)
-#clean status
+    df["joined_date"] = pd.to_datetime(df["joined_date"], format="mixed", errors="coerce")
+    #clean status
     df["status"] = df["status"].astype(str).str.strip().str.lower()
     invalid_status = ~df["status"].isin(VALID_STATUSES)
     df.loc[invalid_status, "status"] = None
@@ -166,107 +118,44 @@ def transform_rides(rides_df):
     df["ride_id"] = generate_id(df["ride_id"], "RIDE")
 
     # clean driver_id
-    def clean_driver_id(val):
-        if pd.isna(val):
-            return None
-        s = str(val).strip()
-        if s == "" or s.upper() == "UNKNOWN":
-            return None
-        s = s.upper().replace(" ", "")
-        s = s.replace("_", "-")
-        if s.startswith("DRV") and "-" not in s:
-            s = "DRV-" + s[3:]
-        if s.startswith("DRV-"):
-            try:
-                num = int(s.split("-")[1])
-                return f"DRV-{num:04d}"
-            except (ValueError, IndexError):
-                return None
-        return None
-
-    df["driver_id"] = df["driver_id"].apply(clean_driver_id)
-
+    df["driver_id"] = df["driver_id"].astype(str).str.upper().str.replace(" ", "").str.replace("_", "-")
+    invalid_ids = ["UNKNOWN", "NAN", "NONE", "N/A", ""]
+    df.loc[df["driver_id"].isin(invalid_ids), "driver_id"] = np.nan
+    valid_mask = df["driver_id"].notna()
+    nums_only = df.loc[valid_mask, "driver_id"].str.replace("DRV", "").str.replace("-", "")
+    df.loc[valid_mask, "driver_id"] = "DRV-" + nums_only.str.zfill(4)
     # normalize city names
     df["city_name"] = df["city_name"].apply(normalize_city)
-
-    # parse dates
-    df["requested_at"] = df["requested_at"].apply(flexible_date)
-
+    # date formatting
+    df["requested_at"] = pd.to_datetime(df["requested_at"], format="mixed", errors="coerce")
     # clean fare_amount
-    df["fare_amount"] = df["fare_amount"].apply(
-        lambda x: clean_numeric(x, must_be_positive=True, remove_commas=True)
-    )
-
+    df["fare_amount"] = df["fare_amount"].astype(str).str.replace(",", "", regex=False)
+    df["fare_amount"] = pd.to_numeric(df["fare_amount"], errors="coerce").abs()
+    df.loc[df["fare_amount"] == 0, "fare_amount"] = np.nan
     # clean distance_km
-    def clean_distance(val):
-        if pd.isna(val):
-            return None
-        s = str(val).strip()
-        if s.upper() == "N/A" or s == "":
-            return None
-        try:
-            num = float(s)
-        except ValueError:
-            return None
-        if num <= 0:
-            return None
-        return num
-
-    df["distance_km"] = df["distance_km"].apply(clean_distance)
-
+    df["distance_km"] = pd.to_numeric(df["distance_km"], errors="coerce")
+    df.loc[df["distance_km"] <= 0, "distance_km"] = np.nan
     # clean duration_minutes
-    def clean_duration(val):
-        if pd.isna(val):
-            return None
-        try:
-            num = int(float(str(val).strip()))
-        except (ValueError, TypeError):
-            return None
-        if num <= 0 or num == 999:
-            return None
-        return num
-
-    df["duration_minutes"] = df["duration_minutes"].apply(clean_duration)
-
+    df["duration_minutes"] = pd.to_numeric(df["duration_minutes"], errors="coerce")
+    df.loc[(df["duration_minutes"] <= 0) | (df["duration_minutes"] == 999), "duration_minutes"] = np.nan
     # normalize payment_method
-    payment_map = {
-        "m-pesa": "mobile_money",
-        "mpesa": "mobile_money",
-        "momo": "mobile_money",
-        "mobile money": "mobile_money",
-        "mobile_money": "mobile_money",
-        "orange money": "mobile_money",
-        "cash": "cash",
-        "card": "card",
-        "credit card": "card",
-        "debit card": "card",
-        "wallet": "wallet",
+    df["payment_method"] = df["payment_method"].astype(str).str.strip().str.lower()
+    df["ride_status"] = df["ride_status"].astype(str).str.strip().str.lower()
+    payment_fixes = {
+        "m-pesa": "mobile_money", "mpesa": "mobile_money", "momo": "mobile_money", 
+        "mobile money": "mobile_money", "orange money": "mobile_money",
+        "credit card": "card", "debit card": "card"
     }
-    df["payment_method"] = (
-        df["payment_method"]
-        .astype(str).str.strip().str.lower()
-        .map(payment_map)
-    )
-
-    # normalize ride_status
-    status_map = {
-        "completed": "completed",
-        "cancelled": "cancelled_by_rider",
-        "cancelled_by_rider": "cancelled_by_rider",
-        "cancel": "cancelled_by_rider",
-        "canceled": "cancelled_by_rider",
-        "cancelled_by_driver": "cancelled_by_driver",
-        "in_progress": "in_progress",
-        "in progress": "in_progress",
-        "requested": "requested",
-        "no_show": "no_show",
+    status_fixes = {
+        "cancel": "cancelled_by_rider", "canceled": "cancelled_by_rider", 
+        "cancelled": "cancelled_by_rider", "in progress": "in_progress"
     }
-    df["ride_status"] = (
-        df["ride_status"]
-        .astype(str).str.strip().str.lower()
-        .map(status_map)
-    )
-
+    df["payment_method"] = df["payment_method"].replace(payment_fixes)
+    df["ride_status"] = df["ride_status"].replace(status_fixes)
+    valid_payments = ["mobile_money", "cash", "card", "wallet"]
+    valid_statuses = ["completed", "cancelled_by_rider", "cancelled_by_driver", "in_progress", "requested", "no_show"]
+    df.loc[~df["payment_method"].isin(valid_payments), "payment_method"] = np.nan
+    df.loc[~df["ride_status"].isin(valid_statuses), "ride_status"] = np.nan
     # clean surge_multiplier
     df["surge_multiplier"] = pd.to_numeric(df["surge_multiplier"], errors="coerce")
     df.loc[df["surge_multiplier"] < 1.0, "surge_multiplier"] = 1.0
@@ -278,162 +167,81 @@ def transform_rides(rides_df):
 
     print(f"    DONE: {original_count} rows → {len(df)} rows (cleaned)")
     return df
-
-
 #transform payments
 def transform_payments(payments_df, rides_df):
     print("Cleaning PAYMENTS...")
     df = payments_df.copy()
     original_count = len(df)
-
     # deduplicate
     before_dedup = len(df)
     df = df.drop_duplicates(subset=["payment_id"], keep="first")
     dupes_removed = before_dedup - len(df)
-
     # fill missing payment IDs
     df["payment_id"] = generate_id(df["payment_id"], "PAY")
-
     # clean ride_id
-    invalid_ride_ids = ["ride_unknown", "n/a", "none", "nan", ""]
-
-    def validate_ride_id(val):
-        if pd.isna(val):
-            return None
-        s = str(val).strip()
-        if s.lower() in invalid_ride_ids:
-            return None
-        s_upper = s.upper()
-        if s_upper.startswith("RIDE-"):
-            try:
-                num = int(s_upper.split("-")[1])
-                return f"RIDE-{num:04d}"
-            except (ValueError, IndexError):
-                return None
-        return None
-
-    df["ride_id"] = df["ride_id"].apply(validate_ride_id)
-
+    df["ride_id"] = df["ride_id"].astype(str).str.upper().str.strip()
+    invalid_rides = ["RIDE_UNKNOWN", "N/A", "NONE", "NAN", ""]
+    df.loc[df["ride_id"].isin(invalid_rides), "ride_id"] = np.nan
+    valid_mask = df["ride_id"].notna()
+    nums_only = df.loc[valid_mask, "ride_id"].str.replace("RIDE", "").str.replace("-", "")
+    df.loc[valid_mask, "ride_id"] = "RIDE-" + nums_only.str.zfill(4)
     # clean amount
-    df["amount"] = df["amount"].apply(
-        lambda x: clean_numeric(x, must_be_positive=True, remove_commas=True)
-    )
-
+    df["amount"] = df["amount"].astype(str).str.replace(",", "", regex=False)
+    df["amount"] = pd.to_numeric(df["amount"], errors="coerce").abs()
+    df.loc[df["amount"] == 0, "amount"] = np.nan
     # clean tip
     df["tip"] = pd.to_numeric(df["tip"], errors="coerce")
     df.loc[df["tip"] < 0, "tip"] = 0
     df["tip"] = df["tip"].fillna(0)
-
     # validate commission_rate
     df["commission_rate"] = pd.to_numeric(df["commission_rate"], errors="coerce")
     invalid_comm = (df["commission_rate"] < 0.01) | (df["commission_rate"] > 1.0)
     df.loc[invalid_comm, "commission_rate"] = None
-
     # recalculate commission_amount
-    df["commission_amount"] = df.apply(
-        lambda row: round(row["amount"] * row["commission_rate"], 2)
-        if pd.notna(row["amount"]) and pd.notna(row["commission_rate"])
-        else None,
-        axis=1,
-    )
-
+    df["commission_amount"] = (df["amount"] * df["commission_rate"]).round(2)
     # clean driver_payout
     df["driver_payout"] = pd.to_numeric(df["driver_payout"], errors="coerce").abs()
-
-    # parse paid_at dates
-    df["paid_at"] = df["paid_at"].apply(flexible_date)
-
+    # date formatting
+    df["paid_at"] = pd.to_datetime(df["paid_at"], format="mixed", errors="coerce")
     # normalize & derive currency
     df["currency"] = df["currency"].astype(str).str.strip().str.upper()
     invalid_currencies = ["N/A", "NAN", "NONE", "", "UNKNOWN"]
     df.loc[df["currency"].isin(invalid_currencies), "currency"] = None
 
-    ride_city_map = (
-        rides_df
-        .dropna(subset=["ride_id", "city_name"])
-        .set_index("ride_id")["city_name"]
-        .to_dict()
-    )
-    city_currency_map = {
-        city: info["currency_code"]
-        for city, info in CITY_MAPPING.items()
-    }
-    valid_currencies = set(city_currency_map.values())
+    city_currency_map = {city: info["currency_code"] for city, info in CITY_MAPPING.items()}
+    valid_currencies = list(city_currency_map.values())
+    df.loc[~df["currency"].isin(valid_currencies), "currency"] = np.nan
 
-    def derive_currency(row):
-        if pd.notna(row["currency"]) and row["currency"] in valid_currencies:
-            return row["currency"]
-        ride_id = row.get("ride_id")
-        if ride_id and ride_id in ride_city_map:
-            city = ride_city_map[ride_id]
-            if city in city_currency_map:
-                return city_currency_map[city]
-        return None
+    ride_to_city = rides_df.dropna(subset=["ride_id", "city_name"]).set_index("ride_id")["city_name"]
+    ride_to_currency = ride_to_city.map(city_currency_map)
 
     before_derive = df["currency"].isna().sum()
-    df["currency"] = df.apply(derive_currency, axis=1)
+    df["currency"] = df["currency"].fillna(df["ride_id"].map(ride_to_currency))
     after_derive = df["currency"].isna().sum()
-    print(f"    Currency: derived {before_derive - after_derive} missing values from ride→city")
-
     # normalize payment_status
     df["payment_status"] = df["payment_status"].astype(str).str.strip().str.lower()
 
     print(f"DONE: {original_count} → {len(df)} rows (cleaned & deduped)")
     return df
-
-
-#the main transform function that return cleaned dataframes
+# the main transform function that return cleaned dataframes
 def transform(drivers_df, rides_df, payments_df):
-    """
-    Transform all 3 DataFrames, then clean up FK references.
-    
-    Order:
-    1. Clean drivers
-    2. Clean rides  
-    3. FK cleanup: rides.driver_id must exist in clean_drivers
-    4. Clean payments (needs clean_rides for currency derivation)
-    5. FK cleanup: payments.ride_id must exist in clean_rides
-    """
-    # Step 1: Clean each table
     clean_drivers = transform_drivers(drivers_df)
     clean_rides = transform_rides(rides_df)
-
-    # Step 2: FK cleanup — rides.driver_id must exist in drivers
-    valid_driver_ids = set(clean_drivers["driver_id"].dropna().unique())
-    orphan_mask = clean_rides["driver_id"].apply(
-        lambda x: pd.notna(x) and x not in valid_driver_ids
-    )
-    orphan_count = orphan_mask.sum()
-    clean_rides.loc[orphan_mask, "driver_id"] = None
-    print(f"    FK cleanup: {orphan_count} ride driver_ids not in drivers → NULL")
-
-    # Step 3: Clean payments (uses clean_rides for currency derivation)
     clean_payments = transform_payments(payments_df, clean_rides)
 
-    # Step 4: FK cleanup — payments.ride_id must exist in rides
-    valid_ride_ids = set(clean_rides["ride_id"].dropna().unique())
-    orphan_mask = clean_payments["ride_id"].apply(
-        lambda x: pd.notna(x) and x not in valid_ride_ids
-    )
-    orphan_count = orphan_mask.sum()
-    clean_payments.loc[orphan_mask, "ride_id"] = None
-    print(f"    FK cleanup: {orphan_count} payment ride_ids not in rides → NULL")
+    clean_rides.loc[~clean_rides["driver_id"].isin(clean_drivers["driver_id"]), "driver_id"] = np.nan
+    clean_payments.loc[~clean_payments["ride_id"].isin(clean_rides["ride_id"]), "ride_id"] = np.nan
 
-    # Step 5: Return the CLEANED DataFrames
     return clean_drivers, clean_rides, clean_payments
-
-
-
-
-#build city ref 
+#build city reference
 def build_cities():
     cities = pd.DataFrame([
-        {"city_name": "Nairobi",    "country_code": "KE", "currency_code": "KES"},
-        {"city_name": "Lagos",      "country_code": "NG", "currency_code": "NGN"},
+        {"city_name": "Nairobi","country_code": "KE", "currency_code": "KES"},
+        {"city_name": "Lagos","country_code": "NG", "currency_code": "NGN"},
         {"city_name": "Casablanca", "country_code": "MA", "currency_code": "MAD"},
-        {"city_name": "Dakar",      "country_code": "SN", "currency_code": "XOF"},
-        {"city_name": "Cairo",      "country_code": "EG", "currency_code": "EGP"},
-        {"city_name": "Abidjan",    "country_code": "CI", "currency_code": "XOF"},
+        {"city_name": "Dakar",   "country_code": "SN", "currency_code": "XOF"},
+        {"city_name": "Cairo",   "country_code": "EG", "currency_code": "EGP"},
+        {"city_name": "Abidjan",  "country_code": "CI", "currency_code": "XOF"},
     ])
     print(f"  built cities reference: {len(cities)} cities")
     return cities
@@ -511,81 +319,50 @@ def create_schema(conn):
     conn.commit()       
     print("  created all tables and indexes")
 
-
-# ─── Load: Insert Data ───────────────────────────────────────────────────────
+#LOAD
 def load_data(conn, cities_df, drivers_df, rides_df, payments_df):
-    """Insert cleaned data into the database tables."""
+    """Bulk insert cleaned data into the database tables."""
     cur = conn.cursor()
 
-    # NaN → None conversion right before inserting
-    cities_df = cities_df.replace({np.nan: None})
-    drivers_df = drivers_df.replace({np.nan: None})
-    rides_df = rides_df.replace({np.nan: None})
-    payments_df = payments_df.replace({np.nan: None})
+    cities_df = cities_df.replace({np.nan: None, pd.NaT: None})
+    drivers_df = drivers_df.replace({np.nan: None, pd.NaT: None})
+    rides_df = rides_df.replace({np.nan: None, pd.NaT: None})
+    payments_df = payments_df.replace({np.nan: None, pd.NaT: None})
 
-    # Cities
-    for i, row in cities_df.iterrows():
-        cur.execute("""
-            INSERT INTO ridehailing.cities (city_name, country_code, currency_code)
-            VALUES (%s, %s, %s)
-            ON CONFLICT DO NOTHING
-        """, (row["city_name"], row["country_code"], row["currency_code"]))
-    print(f"  loaded {len(cities_df)} cities")
+    def bulk_insert(table_name, df, columns):
+        if df.empty:
+            return
+        cols_str = ", ".join(columns)
+        query = f"INSERT INTO ridehailing.{table_name} ({cols_str}) VALUES %s ON CONFLICT DO NOTHING"
+        
+        values = [tuple(row) for row in df[columns].to_numpy()]
+        
+        execute_values(cur, query, values)
+        print(f"  loaded {len(df)} rows into {table_name}")
 
-    # Drivers
-    for i, row in drivers_df.iterrows():
-        cur.execute("""
-            INSERT INTO ridehailing.drivers
-            (driver_id, driver_name, city_name, vehicle_type, rating,
-             joined_date, phone, status)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT DO NOTHING
-        """, (
-            row["driver_id"], row["driver_name"], row["city_name"],
-            row["vehicle_type"], row["rating"], row["joined_date"],
-            row["phone"], row["status"]
-        ))
-    print(f"  loaded {len(drivers_df)} drivers")
+    # Load Cities
+    bulk_insert("cities", cities_df, ["city_name", "country_code", "currency_code"])
+    # Load Drivers
+    bulk_insert("drivers", drivers_df, [
+        "driver_id", "driver_name", "city_name", "vehicle_type", 
+        "rating", "joined_date", "phone", "status"
+    ])
 
-    # Rides
-    for i, row in rides_df.iterrows():
-        cur.execute("""
-            INSERT INTO ridehailing.rides
-            (ride_id, driver_id, city_name, requested_at, duration_minutes,
-             distance_km, fare_amount, surge_multiplier, payment_method,
-             ride_status, rider_rating)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT DO NOTHING
-        """, (
-            row["ride_id"], row["driver_id"], row["city_name"],
-            row["requested_at"], row["duration_minutes"],
-            row["distance_km"], row["fare_amount"],
-            row["surge_multiplier"], row["payment_method"],
-            row["ride_status"], row["rider_rating"]
-        ))
-    print(f"  loaded {len(rides_df)} rides")
+    # Load Rides
+    bulk_insert("rides", rides_df, [
+        "ride_id", "driver_id", "city_name", "requested_at", "duration_minutes",
+        "distance_km", "fare_amount", "surge_multiplier", "payment_method",
+        "ride_status", "rider_rating"
+    ])
 
-    # Payments
-    for i, row in payments_df.iterrows():
-        cur.execute("""
-            INSERT INTO ridehailing.payments
-            (payment_id, ride_id, amount, tip, commission_rate,
-             commission_amount, driver_payout, payment_status, paid_at, currency)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT DO NOTHING
-        """, (
-            row["payment_id"], row["ride_id"], row["amount"],
-            row["tip"], row["commission_rate"],
-            row["commission_amount"], row["driver_payout"],
-            row["payment_status"], row["paid_at"], row["currency"]
-        ))
-    print(f"  loaded {len(payments_df)} payments")
-
+    # Load Payments
+    bulk_insert("payments", payments_df, [
+        "payment_id", "ride_id", "amount", "tip", "commission_rate",
+        "commission_amount", "driver_payout", "payment_status", "paid_at", "currency"
+    ])
     cur.close()
     conn.commit()
-    print("all data loaded successfully")
-
-
+    print("All data loaded successfully")
 #validate 
 def validate(conn):
     cur=conn.cursor()
@@ -604,8 +381,6 @@ def validate(conn):
     cur.execute("SELECT COUNT(*) FROM ridehailing.payments;")
     payments_count=cur.fetchone()[0]
     print(f"  VALIDATION: payments count = {payments_count}")
-
-
 #main function to run the whole pipeline
 def main():
     #extract 
@@ -643,5 +418,3 @@ def main():
             print("connection closed")
 if __name__ == "__main__":
     main()
-
-
