@@ -40,7 +40,7 @@ def extract():
     return drivers_df, rides_df, payments_df
 
 #TRANSFORM
-# #helper function since same cleaning patern is applied to all 3 dataframes
+#helper function since same cleaning patern is applied to all 3 dataframes
 def normalize_city(city):
     if pd.isna(city):
         return None
@@ -53,7 +53,6 @@ def normalize_city(city):
 def generate_id(series, prefix):
     cleaned_series = series.copy()
     cleaned_series = cleaned_series.replace(r'^\s*$', np.nan, regex=True)
-
     existing_nums = pd.to_numeric(
         cleaned_series.astype(str).str.replace(f"{prefix}-", "", regex=False), 
         errors='coerce'
@@ -113,10 +112,8 @@ def transform_rides(rides_df):
     original_count = len(rides_df)
     df = rides_df.copy()
     df = df.rename(columns={"city": "city_name"})
-
     # fill missing id
     df["ride_id"] = generate_id(df["ride_id"], "RIDE")
-
     # clean driver_id
     df["driver_id"] = df["driver_id"].astype(str).str.upper().str.replace(" ", "").str.replace("_", "-")
     invalid_ids = ["UNKNOWN", "NAN", "NONE", "N/A", ""]
@@ -228,7 +225,7 @@ def transform(drivers_df, rides_df, payments_df):
     clean_drivers = transform_drivers(drivers_df)
     clean_rides = transform_rides(rides_df)
     clean_payments = transform_payments(payments_df, clean_rides)
-
+#handling the fk issue by dropping invalid references and setting them to null 
     clean_rides.loc[~clean_rides["driver_id"].isin(clean_drivers["driver_id"]), "driver_id"] = np.nan
     clean_payments.loc[~clean_payments["ride_id"].isin(clean_rides["ride_id"]), "ride_id"] = np.nan
 
@@ -245,12 +242,8 @@ def build_cities():
     ])
     print(f"  built cities reference: {len(cities)} cities")
     return cities
-
-
-
 #load part
 #schema creation
-
 def create_schema(conn):
     cur=conn.cursor()
     cur.execute("DROP SCHEMA IF EXISTS ridehailing CASCADE;")
@@ -321,7 +314,6 @@ def create_schema(conn):
 
 #LOAD
 def load_data(conn, cities_df, drivers_df, rides_df, payments_df):
-    """Bulk insert cleaned data into the database tables."""
     cur = conn.cursor()
 
     cities_df = cities_df.replace({np.nan: None, pd.NaT: None})
@@ -340,22 +332,22 @@ def load_data(conn, cities_df, drivers_df, rides_df, payments_df):
         execute_values(cur, query, values)
         print(f"  loaded {len(df)} rows into {table_name}")
 
-    # Load Cities
+    #load Cities
     bulk_insert("cities", cities_df, ["city_name", "country_code", "currency_code"])
-    # Load Drivers
+    #load Drivers
     bulk_insert("drivers", drivers_df, [
         "driver_id", "driver_name", "city_name", "vehicle_type", 
         "rating", "joined_date", "phone", "status"
     ])
 
-    # Load Rides
+    #load Rides
     bulk_insert("rides", rides_df, [
         "ride_id", "driver_id", "city_name", "requested_at", "duration_minutes",
         "distance_km", "fare_amount", "surge_multiplier", "payment_method",
         "ride_status", "rider_rating"
     ])
 
-    # Load Payments
+    #load Payments
     bulk_insert("payments", payments_df, [
         "payment_id", "ride_id", "amount", "tip", "commission_rate",
         "commission_amount", "driver_payout", "payment_status", "paid_at", "currency"
