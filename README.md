@@ -44,48 +44,48 @@ This pipeline simulates a ride-hailing platform operating across **6 African cit
 The raw data contains **real-world messiness** that the pipeline resolves:
 
 ### Identifiers
-- ✅ Missing IDs auto-generated (`DRV-XXXX`, `RIDE-XXXX`, `PAY-XXXX`)
-- ✅ Inconsistent ID formats normalized (`DRV_1005` → `DRV-1005`, `drv-1010` → `DRV-1010`)
-- ✅ Invalid references (`UNKNOWN`, `RIDE_UNKNOWN`, `N/A`) set to `NULL`
+- Missing IDs auto-generated (`DRV-XXXX`, `RIDE-XXXX`, `PAY-XXXX`)
+- Inconsistent ID formats normalized (`DRV_1005` → `DRV-1005`, `drv-1010` → `DRV-1010`)
+- Invalid references (`UNKNOWN`, `RIDE_UNKNOWN`, `N/A`) set to `NULL`
 
 ### City & Location Data
-- ✅ Case normalization (`nairobi` → `Nairobi`, `NAIROBI` → `Nairobi`, `DAKAR` → `Dakar`)
-- ✅ Whitespace trimming (` Lagos`, ` DAKAR `, ` Nairobi `)
-- ✅ Invalid cities rejected
+- Case normalization (`nairobi` → `Nairobi`, `NAIROBI` → `Nairobi`, `DAKAR` → `Dakar`)
+- Whitespace trimming (` Lagos`, ` DAKAR `, ` Nairobi `)
+- Invalid cities rejected
 
 ### Dates & Timestamps
-- ✅ Mixed date formats parsed (`2025-06-06 09:15:00`, `18-07-2025 11:13`, `16/09/2024`, `25/05/2024`)
-- ✅ Invalid dates coerced to `NULL`
+- Mixed date formats parsed (`2025-06-06 09:15:00`, `18-07-2025 11:13`, `16/09/2024`, `25/05/2024`)
+- Invalid dates coerced to `NULL`
 
 ### Numeric Fields
-- ✅ Negative fares converted to absolute values (`-40.69` → `40.69`)
-- ✅ Zero fares/distances set to `NULL`
-- ✅ Out-of-range ratings (< 1.0 or > 5.0) set to `NULL`
-- ✅ Sentinel values removed (`999` duration → `NULL`)
-- ✅ Comma-separated numbers cleaned (`1,234` → `1234`)
-- ✅ Invalid surge multipliers floored to `1.0`
+- Negative fares converted to absolute values (`-40.69` → `40.69`)
+- Zero fares/distances set to `NULL`
+- Out-of-range ratings (< 1.0 or > 5.0) set to `NULL`
+- Sentinel values removed (`999` duration → `NULL`)
+- Comma-separated numbers cleaned (`1,234` → `1234`)
+- Invalid surge multipliers floored to `1.0`
 
 ### Categorical Fields
-- ✅ Payment method variants unified (`M-Pesa`, `mpesa`, `momo`, `Orange Money` → `mobile_money`; `credit card`, `debit card` → `card`)
-- ✅ Ride status variants unified (`cancel`, `canceled`, `CANCELLED` → `cancelled_by_rider`; `Completed` → `completed`)
-- ✅ Vehicle type normalization (`moto`, `motor cycle` → `motorcycle`; `VAN` → `van`, `Car` → `car`)
-- ✅ Driver status normalization and validation
+- Payment method variants unified (`M-Pesa`, `mpesa`, `momo`, `Orange Money` → `mobile_money`; `credit card`, `debit card` → `card`)
+- Ride status variants unified (`cancel`, `canceled`, `CANCELLED` → `cancelled_by_rider`; `Completed` → `completed`)
+- Vehicle type normalization (`moto`, `motor cycle` → `motorcycle`; `VAN` → `van`, `Car` → `car`)
+- Driver status normalization and validation
 
 ### Phone Numbers
-- ✅ Placeholder values removed (`N/A`, `unknown`, `none` → `NULL`)
+- Placeholder values removed (`N/A`, `unknown`, `none` → `NULL`)
 
 ### Payments
-- ✅ Duplicate `payment_id` records deduplicated
-- ✅ Negative amounts converted to absolute values
-- ✅ Negative tips floored to `0`
-- ✅ Invalid commission rates (< 0.01 or > 1.0) set to `NULL`
-- ✅ Commission amounts recalculated from `amount × commission_rate`
-- ✅ Missing currency codes derived from ride → city → currency mapping
+- Duplicate `payment_id` records deduplicated
+- Negative amounts converted to absolute values
+- Negative tips floored to `0`
+- Invalid commission rates (< 0.01 or > 1.0) set to `NULL`
+- Commission amounts recalculated from `amount × commission_rate`
+- Missing currency codes derived from ride → city → currency mapping
 
 ### Referential Integrity
-- ✅ `rides.driver_id` validated against existing drivers
-- ✅ `payments.ride_id` validated against existing rides
-- ✅ Orphaned foreign keys set to `NULL`
+- `rides.driver_id` validated against existing drivers
+- `payments.ride_id` validated against existing rides
+- Orphaned foreign keys set to `NULL`
 
 ---
 
